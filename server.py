@@ -58,14 +58,18 @@ def root():
 def health():
     return {"status": "ok"}
 
-
-# ---------- RESET ----------
-@app.get("/reset")
+@app.post("/reset")
 def reset():
     global env
     env = CodeDebugEnv(difficulty="easy", task="easy_001")
+    
     obs = env.reset()
-    return obs.model_dump()
+    
+    return {
+        "status": "ok",
+        "observation": obs.model_dump()
+    }
+
 
 
 # ---------- STEP (CRITICAL) ----------
