@@ -57,19 +57,18 @@ def root():
 @app.get("/health")
 def health():
     return {"status": "ok"}
+    
+from fastapi import Request
 
 @app.post("/reset")
-def reset():
+async def reset(request: Request):
     global env
-    env = CodeDebugEnv(difficulty="easy", task="easy_001")
-    
-    obs = env.reset()
-    
-    return {
-        "status": "ok",
-        "observation": obs.model_dump()
-    }
 
+    env = CodeDebugEnv(difficulty="easy", task="easy_001")
+
+    obs = env.reset()
+
+    return obs.model_dump()
 
 
 # ---------- STEP (CRITICAL) ----------
