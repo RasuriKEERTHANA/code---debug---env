@@ -1,97 +1,93 @@
-import subprocess
-import sys
-import threading
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
-import uvicorn
+import threading
 
-from env import CodeDebugEnv  # your env
+from env import CodeDebugEnv
+from tasks import Action
 
-app = FastAPI(title="Code Debug OpenEnv")
+app = FastAPI()
 
-# ---------- GLOBAL ENV ----------
+# Global environment + results store
 env = CodeDebugEnv(difficulty="easy", task="easy_001")
 
-# ---------- STORE ----------
-results_store = {"status": "starting", "results": []}
+results_store = {
+    "status": "running",
+    "stdout": "",
+    "stderr": "",
+    "exit_code": None
+}
 
-
-# ---------- ACTION MODEL ----------
-class Action(BaseModel):
-    fixed_code: str
-
-
-# ---------- INFERENCE THREAD ----------
+# ---------------- BACKGROUND INFERENCE ----------------
 def run_inference():
+    global results_store
     try:
-        results_store["status"] = "running"
-        result = subprocess.run(
-            [sys.executable, "inference.py"],
-            capture_output=True,
-            text=True,
-            timeout=1200
-        )
-        results_store["status"]    = "completed"
-        results_store["stdout"]    = result.stdout
-        results_store["stderr"]    = result.stderr
+        result = env.run_inference()
+
+        results_store["status"] = "completed"
+        results_store["stdout"] = result.stdout
+        results_store["stderr"] = result.stderr
         results_store["exit_code"] = result.returncode
+
     except Exception as e:
         results_store["status"] = "error"
-        results_store["error"]  = str(e)
+        results_store["error"] = str(e)
 
 
-# ---------- ROOT ----------
+# ---------------- ROOT ----------------
 @app.get("/")
 def root():
-    return JSONResponse({
+    return {
         "env": "code-debug-env",
         "version": "1.0.0",
         "description": "AI Code Debugging OpenEnv",
-        "status": results_store.get("status", "starting"),
+        "status": results_store.get("status", "running"),
         "endpoints": ["/", "/health", "/results", "/reset", "/step", "/state"]
-    })
+    }
 
 
-# ---------- HEALTH ----------
+# ---------------- HEALTH ----------------
 @app.get("/health")
 def health():
     return {"status": "ok"}
-    
-from fastapi import Request
 
+
+# ---------------- RESET (CRITICAL FIXED) ----------------
 @app.post("/reset")
 async def reset(request: Request):
     global env
 
+    # Reinitialize environment (NO max_steps)
     env = CodeDebugEnv(difficulty="easy", task="easy_001")
 
     obs = env.reset()
 
-    return obs.model_dump()
+    # IMPORTANT: return raw JSON (not wrapped)
+    return JSONResponse(content=obs.model_dump())
 
 
-# ---------- STEP (CRITICAL) ----------
+# ---------------- STEP ----------------
 @app.post("/step")
 def step(action: Action):
     result = env.step(action)
-    return result.model_dump()
+    return JSONResponse(content=result.model_dump())
 
 
-# ---------- STATE ----------
+# ---------------- STATE ----------------
 @app.get("/state")
 def state():
-    return env.state().model_dump()
+    return JSONResponse(content=env.state().model_dump())
 
 
-# ---------- RESULTS ----------
+# ---------------- RESULTS ----------------
 @app.get("/results")
 def results():
     return results_store
 
 
-# ---------- MAIN ----------
+# ---------------- MAIN ----------------
 if __name__ == "__main__":
     thread = threading.Thread(target=run_inference, daemon=True)
     thread.start()
+
+    import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=7860)
