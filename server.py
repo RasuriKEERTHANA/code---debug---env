@@ -60,10 +60,10 @@ def health():
 
 
 # ---------- RESET ----------
-@app.post("/reset")
+@app.get("/reset")
 def reset():
     global env
-    env = CodeDebugEnv(difficulty="easy", task="easy_001", max_steps=3)
+    env = CodeDebugEnv(difficulty="easy", task="easy_001")
     obs = env.reset()
     return obs.model_dump()
 
