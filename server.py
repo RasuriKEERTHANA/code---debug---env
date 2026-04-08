@@ -66,13 +66,19 @@ async def reset(request: Request):
 
 
 # ---------------- STEP ----------------
+
+
 @app.post("/step")
 async def step(action: dict):
     try:
-        # Extract fixed_code manually
-        fixed_code = action.get("fixed_code")
+        # Convert dict → object with attribute
+        class ActionObj:
+            def __init__(self, fixed_code):
+                self.fixed_code = fixed_code
 
-        result = env.step(fixed_code)
+        action_obj = ActionObj(action.get("fixed_code"))
+
+        result = env.step(action_obj)
 
         return JSONResponse(content=result.model_dump())
 
@@ -81,8 +87,6 @@ async def step(action: dict):
             content={"error": str(e)},
             status_code=500
         )
-
-
 # ---------------- STATE ----------------
 @app.get("/state")
 def state():
