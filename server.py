@@ -11,7 +11,7 @@ from env import CodeDebugEnv  # your env
 app = FastAPI(title="Code Debug OpenEnv")
 
 # ---------- GLOBAL ENV ----------
-env = CodeDebugEnv(difficulty="easy", task="easy_001", max_steps=3)
+env = CodeDebugEnv(difficulty="easy", task="easy_001")
 
 # ---------- STORE ----------
 results_store = {"status": "starting", "results": []}
