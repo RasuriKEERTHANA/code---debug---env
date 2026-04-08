@@ -1,5 +1,4 @@
 import os
-import sys
 import textwrap
 from typing import List, Optional
 from openai import OpenAI
@@ -7,51 +6,52 @@ from openai import OpenAI
 from env import CodeDebugEnv, Action
 from tasks import TASKS
 
+
 # ─────────────────────────────────────────────
-#  CONFIG  (from environment variables)
+# CONFIG
 # ─────────────────────────────────────────────
 
 API_KEY      = os.getenv("HF_TOKEN") or os.getenv("API_KEY")
 API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
-MODEL_NAME   = os.getenv("MODEL_NAME",   "Qwen/Qwen2.5-72B-Instruct")
+MODEL_NAME   = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
+
 BENCHMARK    = "code-debug-env"
 MAX_STEPS    = 5
 TEMPERATURE  = 0.3
 MAX_TOKENS   = 1024
-SUCCESS_SCORE_THRESHOLD = 0.5
+
+# 🔥 FIXED (important)
+SUCCESS_SCORE_THRESHOLD = 0.9
+
 
 SYSTEM_PROMPT = textwrap.dedent("""
-    You are an expert Python debugger.
-    You will be given buggy Python code and an error message.
-    Your job is to return the COMPLETE corrected Python code.
+You are an expert Python debugger.
+You will be given buggy Python code and an error message.
+Your job is to return the COMPLETE corrected Python code.
 
-    Rules:
-    - Return ONLY the fixed Python code, nothing else.
-    - No explanations, no markdown, no code fences.
-    - Keep the original structure — only fix the bugs.
-    - Make sure the code runs and produces the correct output.
+Rules:
+- Return ONLY the fixed Python code
+- No explanations
+- No markdown
+- No ``` blocks
+- Keep structure same
 """).strip()
 
 
 # ─────────────────────────────────────────────
-#  STDOUT LOG FUNCTIONS  (exact format required)
+# LOG FUNCTIONS (REQUIRED FORMAT)
 # ─────────────────────────────────────────────
 
-def log_start(task: str, env: str, model: str) -> None:
+def log_start(task: str, env: str, model: str):
     print(f"[START] task={task} env={env} model={model}", flush=True)
 
 
-def log_step(
-    step: int,
-    action: str,
-    reward: float,
-    done: bool,
-    error: Optional[str]
-) -> None:
+def log_step(step: int, action: str, reward: float, done: bool, error: Optional[str]):
     error_val = error if error else "null"
     done_val  = str(done).lower()
-    # Truncate action to avoid overly long lines
-    action_short = action.replace("\n", "\\n")[:120]
+
+    action_short = action.replace("\n", "\\n")[:200]
+
     print(
         f"[STEP] step={step} action={action_short} "
         f"reward={reward:.2f} done={done_val} error={error_val}",
@@ -59,13 +59,9 @@ def log_step(
     )
 
 
-def log_end(
-    success: bool,
-    steps: int,
-    score: float,
-    rewards: List[float]
-) -> None:
+def log_end(success: bool, steps: int, score: float, rewards: List[float]):
     rewards_str = ",".join(f"{r:.2f}" for r in rewards)
+
     print(
         f"[END] success={str(success).lower()} "
         f"steps={steps} score={score:.2f} rewards={rewards_str}",
@@ -74,87 +70,85 @@ def log_end(
 
 
 # ─────────────────────────────────────────────
-#  LLM CALL
+# LLM CALL
 # ─────────────────────────────────────────────
 
-def get_fixed_code(
-    client: OpenAI,
-    obs,
-    history: List[str]
-) -> str:
-    """Ask the LLM to fix the buggy code."""
+def get_fixed_code(client: OpenAI, obs, history: List[str]) -> str:
 
     history_block = "\n".join(history[-3:]) if history else "None"
 
-    user_prompt = textwrap.dedent(f"""
-        Challenge: {obs.description}
+    prompt = textwrap.dedent(f"""
+    Challenge: {obs.description}
 
-        Buggy code:
-        {obs.buggy_code}
+    Buggy code:
+    {obs.buggy_code}
 
-        Error / wrong output:
-        {obs.error_message}
+    Error:
+    {obs.error_message}
 
-        Hint: {obs.hint}
+    Hint:
+    {obs.hint}
 
-        Previous attempts:
-        {history_block}
+    Previous attempts:
+    {history_block}
 
-        Return ONLY the complete fixed Python code:
+    Return ONLY fixed Python code:
     """).strip()
 
     try:
-        completion = client.chat.completions.create(
-            model       = MODEL_NAME,
-            messages    = [
+        response = client.chat.completions.create(
+            model=MODEL_NAME,
+            messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user",   "content": user_prompt},
+                {"role": "user", "content": prompt}
             ],
-            temperature = TEMPERATURE,
-            max_tokens  = MAX_TOKENS,
-            stream      = False,
+            temperature=TEMPERATURE,
+            max_tokens=MAX_TOKENS,
         )
-        text = (completion.choices[0].message.content or "").strip()
-        # Strip markdown fences if model adds them
+
+        text = (response.choices[0].message.content or "").strip()
+
+        # Remove ``` if model adds
         if text.startswith("```"):
-            lines = text.split("\n")
-            text  = "\n".join(
-                l for l in lines
-                if not l.startswith("```")
-            ).strip()
+            text = "\n".join([l for l in text.split("\n") if not l.startswith("```")]).strip()
+
         return text if text else obs.buggy_code
 
-    except Exception as exc:
-        print(f"[DEBUG] LLM call failed: {exc}", flush=True)
+    except Exception as e:
+        print(f"[DEBUG] LLM error: {e}", flush=True)
         return obs.buggy_code
 
 
 # ─────────────────────────────────────────────
-#  SINGLE TASK RUNNER
+# RUN SINGLE TASK
 # ─────────────────────────────────────────────
 
-def run_task(client: OpenAI, task_name: str) -> dict:
+def run_task(client: OpenAI, task_name: str):
+
     task_cfg = TASKS[task_name]
 
+    # 🔥 FIXED (removed max_steps)
     env = CodeDebugEnv(
-        difficulty = task_cfg["difficulty"],
-        max_steps  = MAX_STEPS,
-        task       = task_cfg["challenge_id"],
-        seed       = 42
+        difficulty=task_cfg["difficulty"],
+        task=task_cfg["challenge_id"],
+        seed=42
     )
 
-    obs          = env.reset()
-    rewards: List[float] = []
-    steps_taken  = 0
-    score        = 0.0
-    success      = False
-    done         = False
-    history: List[str] = []
+    obs = env.reset()
 
-    log_start(task=task_name, env=BENCHMARK, model=MODEL_NAME)
+    rewards = []
+    history = []
+
+    steps_taken = 0
+    score = 0.0
+    success = False
+    done = False
+
+    log_start(task_name, BENCHMARK, MODEL_NAME)
 
     try:
         for step in range(1, MAX_STEPS + 1):
+
             if done:
                 break
 
@@ -162,11 +156,11 @@ def run_task(client: OpenAI, task_name: str) -> dict:
             fixed_code = get_fixed_code(client, obs, history)
 
             try:
-                action = Action(fixed_code=fixed_code)
-                result = env.step(action)
+                result = env.step(Action(fixed_code=fixed_code))
                 reward = result.reward
                 done   = result.done
                 obs    = result.observation
+
             except Exception as e:
                 reward = 0.0
                 done   = False
@@ -176,75 +170,61 @@ def run_task(client: OpenAI, task_name: str) -> dict:
             steps_taken = step
             score = max(score, reward)
 
-            log_step(
-                step   = step,
-                action = fixed_code,
-                reward = reward,
-                done   = done,
-                error  = error
-            )
+            # Debug (optional but useful)
+            print(f"[DEBUG] current score={score}", flush=True)
 
-            history.append(
-                f"Step {step}: reward={reward:.2f} passed={done}"
-            )
+            log_step(step, fixed_code, reward, done, error)
 
-        score   = round(min(max(score, 0.0), 1.0), 2)
+            history.append(f"step={step} reward={reward:.2f}")
+
+        score = round(min(max(score, 0.0), 1.0), 2)
         success = score >= SUCCESS_SCORE_THRESHOLD
 
     finally:
         try:
-            env.close()
-        except Exception as e:
-            print(f"[DEBUG] env.close() error: {e}", flush=True)
+            env.close()   # 🔥 safe now
+        except:
+            pass
 
-        log_end(
-            success = success,
-            steps   = steps_taken,
-            score   = score,
-            rewards = rewards
-        )
+        log_end(success, steps_taken, score, rewards)
 
     return {
-        "task":    task_name,
-        "score":   score,
+        "task": task_name,
+        "score": score,
         "success": success,
-        "steps":   steps_taken,
-        "rewards": rewards
+        "steps": steps_taken
     }
 
 
 # ─────────────────────────────────────────────
-#  MAIN — runs all 3 tasks
+# MAIN
 # ─────────────────────────────────────────────
 
 def main():
+
     client = OpenAI(
-        base_url = API_BASE_URL,
-        api_key  = API_KEY
+        base_url=API_BASE_URL,
+        api_key=API_KEY
     )
 
-    all_results = []
+    results = []
 
-    for task_name in ["easy", "medium", "hard"]:
-        print(f"\n{'='*50}", flush=True)
-        print(f"Running task: {task_name.upper()}", flush=True)
-        print(f"{'='*50}", flush=True)
+    for task in ["easy", "medium", "hard"]:
 
-        result = run_task(client, task_name)
-        all_results.append(result)
+        print("\n" + "="*50, flush=True)
+        print(f"Running task: {task.upper()}", flush=True)
+        print("="*50, flush=True)
 
-    # Summary
-    print(f"\n{'='*50}", flush=True)
+        res = run_task(client, task)
+        results.append(res)
+
+    print("\n" + "="*50, flush=True)
     print("FINAL SUMMARY", flush=True)
-    print(f"{'='*50}", flush=True)
-    for r in all_results:
+    print("="*50, flush=True)
+
+    for r in results:
         status = "PASS" if r["success"] else "FAIL"
-        print(
-            f"[{status}] {r['task']:8s} "
-            f"score={r['score']:.2f} "
-            f"steps={r['steps']}",
-            flush=True
-        )
+        print(f"[{status}] {r['task']} score={r['score']:.2f} steps={r['steps']}", flush=True)
 
 
 if __name__ == "__main__":
