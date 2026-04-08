@@ -1,6 +1,5 @@
 ---
 title: Code Debug Env
-emoji: ??
 colorFrom: blue
 colorTo: green
 sdk: docker
