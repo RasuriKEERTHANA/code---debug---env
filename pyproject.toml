@@ -1,0 +1,12 @@
+[project]
+name = "code-debug-env"
+version = "1.0.0"
+description = "AI Code Debugging OpenEnv"
+authors = [
+    { name = "Keerthana" }
+]
+dependencies = [
+    "fastapi",
+    "uvicorn",
+    "numpy"
+]
