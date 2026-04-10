@@ -5,3 +5,4 @@ numpy>=1.26.0
 pandas
 requests
 openai
+openenv>=0.2.0
