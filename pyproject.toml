@@ -1,12 +1,18 @@
 [project]
-name = "code-debug-env"
-version = "1.0.0"
+name = "openenv-code-debugger"
+version = "0.1.0"
 description = "AI Code Debugging OpenEnv"
-authors = [
-    { name = "Keerthana" }
-]
+requires-python = ">=3.10"
+
 dependencies = [
     "fastapi",
     "uvicorn",
-    "numpy"
+    "openenv>=0.2.0"
 ]
+
+[project.scripts]
+server = "server:app"
+
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
