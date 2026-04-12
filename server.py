@@ -7,7 +7,7 @@ from tasks import Action
 
 app = FastAPI()
 
-# Global environment + results store
+# ---------------- GLOBAL STATE ----------------
 env = CodeDebugEnv(difficulty="easy", task="easy_001")
 
 results_store = {
@@ -51,27 +51,25 @@ def health():
     return {"status": "ok"}
 
 
-# ---------------- RESET (CRITICAL FIXED) ----------------
+# ---------------- RESET ----------------
 @app.post("/reset")
 async def reset(request: Request):
     global env
 
-    # Reinitialize environment (NO max_steps)
+    # Reinitialize environment
     env = CodeDebugEnv(difficulty="easy", task="easy_001")
 
     obs = env.reset()
 
-    # IMPORTANT: return raw JSON (not wrapped)
+    # Return RAW JSON (IMPORTANT)
     return JSONResponse(content=obs.model_dump())
 
 
 # ---------------- STEP ----------------
-
-
 @app.post("/step")
 async def step(action: dict):
     try:
-        # Convert dict → object with attribute
+        # Convert dict → object with attribute (required by env)
         class ActionObj:
             def __init__(self, fixed_code):
                 self.fixed_code = fixed_code
@@ -87,6 +85,8 @@ async def step(action: dict):
             content={"error": str(e)},
             status_code=500
         )
+
+
 # ---------------- STATE ----------------
 @app.get("/state")
 def state():
@@ -99,12 +99,12 @@ def results():
     return results_store
 
 
-# ---------------- MAIN ----------------
-if __name__ == "__main__":
+# ---------------- MAIN ENTRYPOINT (CRITICAL) ----------------
+def main():
+    import uvicorn
+
+    # Start background inference thread
     thread = threading.Thread(target=run_inference, daemon=True)
     thread.start()
 
-
-def main():
-    import uvicorn
     uvicorn.run("server:app", host="0.0.0.0", port=7860)
