@@ -104,5 +104,7 @@ if __name__ == "__main__":
     thread = threading.Thread(target=run_inference, daemon=True)
     thread.start()
 
+
+def main():
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=7860)
+    uvicorn.run("server:app", host="0.0.0.0", port=7860)
